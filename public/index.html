@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ren.py - Three.js Game</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Courier New', monospace;
+            background-color: #000;
+            color: #fff;
+        }
+        
+        #game-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+        
+        #ui-layer {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            z-index: 100;
+        }
+        
+        .stat-box {
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin-right: 20px;
+            border: 2px solid #4CAF50;
+        }
+        
+        .stat-label {
+            font-size: 12px;
+            color: #aaa;
+        }
+        
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #fff;
+        }
+        
+        #health-bar {
+            width: 200px;
+            height: 25px;
+            background: #333;
+            border-radius: 12px;
+            overflow: hidden;
+            margin-top: 5px;
+        }
+        
+        #health-fill {
+            height: 100%;
+            width: 100%;
+            background: linear-gradient(90deg, #4CAF50, #8BC34A);
+            transition: width 0.3s;
+        }
+        
+        #instructions {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+        }
+        
+        .instruction-box {
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #2196F3;
+        }
+        
+        h1 {
+            font-size: 18px;
+            margin-bottom: 10px;
+        }
+        
+        p, li {
+            font-size: 14px;
+            line-height: 1.5;
+            color: #ccc;
+        }
+        
+        ul {
+            margin-left: 20px;
+        }
+        
+        .controls-kbd {
+            background: #333;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <!-- Game canvas will be injected here -->
+    </div>
+    
+    <div id="instructions" class="instruction-box">
+        <h1>Controls:</h1>
+        <ul>
+            <li><span class="controls-kbd">W</span> / <span class="controls-kbd">↑</span> Move Up</li>
+            <li><span class="controls-kbd">S</span> / <span class="controls-kbd">↓</span> Move Down</li>
+            <li><span class="controls-kbd">A</span> / <span class="controls-kbd">←</span> Move Left</li>
+            <li><span class="controls-kbd">D</span> / <span class="controls-kbd">→</span> Move Right</li>
+            <li><span class="controls-kbd">Mouse Click</span> Attack</li>
+        </ul>
+    </div>
+    
+    <div id="ui-layer">
+        <div class="stat-box">
+            <div class="stat-label">Health</div>
+            <div id="health-bar">
+                <div id="health-fill"></div>
+            </div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">Level</div>
+            <div class="stat-value" id="level-display">1</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">XP</div>
+            <div class="stat-value" id="xp-display">0</div>
+        </div>
+    </div>
+
+    <!-- Three.js from CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    
+    <script>
+        // Game configuration
+        const CONFIG = {
+            canvasSize: 600,
+            playerColor: '#4CAF50',
+            enemyColors: ['#32CD32', '#8B4513', '#FF4500'],
+            fogBaseHeight: 200,
+            fogEndHeight: 50,
+        };
+
+        // Three.js scene setup
+        const container = document.getElementById('game-container');
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(
+            75,
+            window.innerWidth / window.innerHeight,
+            0.1,
+            1000
+        );
+        
+        const renderer = new THREE.WebGLRenderer({ 
+            antialias: true,
+            preserveDrawingBuffer: true
+        });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        container.appendChild(renderer.domElement);
+
+        // Scene lighting
+        const ambientLight = new THREE.AmbientLight(0x404040, 1);
+        scene.add(ambientLight);
+        
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+        directionalLight.position.set(0, 10, 5);
+        scene.add(directionalLight);
+
+        // Fog effect
+        scene.fogColor = 0x1a1a2e;
+        scene.fogDensity = 0.002;
+
+        // Player sprite
+        const playerGeometry = new THREE.SphereGeometry(3, 16, 16);
+        const playerMaterial = new THREE.MeshBasicMaterial({ 
+            color: CONFIG.playerColor 
+        });
+        const playerMesh = new THREE.Mesh(playerGeometry, playerMaterial);
+        playerMesh.position.y = 2;
+        scene.add(playerMesh);
+
+        // Enemy sprites (placeholder pool)
+        const enemyPool = [];
+        const MAX_ENEMIES = 10;
+        
+        function createEnemy(type) {
+            if (enemyPool.length > 0) {
+                return enemyPool.pop();
+            }
+            
+            const geometries = {
+                slime: new THREE.SphereGeometry(2.5, 16, 16),
+                brute: new THREE.BoxGeometry(4, 4, 4),
+                sprinter: new THREE.ConeGeometry(2, 6, 16)
+            };
+            
+            const geometry = geometries[type] || geometries.slime;
+            const material = new THREE.MeshBasicMaterial({ 
+                color: CONFIG.enemyColors[Math.floor(Math.random() * CONFIG.enemyColors.length)] 
+            });
+            
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.position.x = (Math.random() - 0.5) * 600;
+            mesh.position.y = 3;
+            scene.add(mesh);
+            
+            return mesh;
+        }
+
+        function spawnEnemy() {
+            if (enemyPool.length < MAX_ENEMIES) {
+                const enemyMesh = createEnemy(
+                    Math.random() > 0.5 ? 'brute' : (Math.random() > 0.5 ? 'sprinter' : 'slime')
+                );
+                enemyPool.push(enemyMesh);
+            }
+        }
+
+        function updateEnemies() {
+            // Simple chase logic toward player
+            const activeEnemies = enemyPool.filter(e => e.visible);
+            
+            if (activeEnemies.length === 0) {
+                spawnEnemy();
+            }
+            
+            activeEnemies.forEach(enemy => {
+                const dx = playerMesh.position.x - enemy.position.x;
+                const dy = playerMesh.position.y - enemy.position.y;
+                
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance > 5) {
+                    const moveX = (dx / distance) * 0.8;
+                    const moveY = (dy / distance) * 0.8;
+                    
+                    enemy.position.x += moveX;
+                    enemy.position.y += moveY;
+                } else if (distance < 20) {
+                    // Damage player
+                    playerMesh.material.color.setHex(0xff0000);
+                    setTimeout(() => {
+                        playerMesh.material.color.setHex(CONFIG.playerColor);
+                    }, 100);
+                }
+            });
+        }
+
+        // Terrain layer
+        const terrainGeometry = new THREE.PlaneGeometry(CONFIG.canvasSize, CONFIG.canvasSize);
+        terrainGeometry.rotateX(-Math.PI / 2);
+        const terrainMaterial = new THREE.MeshBasicMaterial({ 
+            color: 0x90EE90,
+            side: THREE.DoubleSide
+        });
+        const terrain = new THREE.Mesh(terrainGeometry, terrainMaterial);
+        terrain.position.y = CONFIG.fogBaseHeight / 2;
+        scene.add(terrain);
+
+        // Input tracking
+        let keys = {};
+        
+        document.addEventListener('keydown', (e) => {
+            keys[e.key.toLowerCase()] = true;
+            keys[e.key] = true;
+            
+            switch(e.key) {
+                case 'w': case 'ArrowUp': playerMesh.position.y -= 0.5; break;
+                case 's': case 'ArrowDown': playerMesh.position.y += 0.5; break;
+                case 'a': case 'ArrowLeft': playerMesh.position.x -= 0.5; break;
+                case 'd': case 'ArrowRight': playerMesh.position.x += 0.5; break;
+            }
+        });
+        
+        document.addEventListener('keyup', (e) => {
+            keys[e.key.toLowerCase()] = false;
+            keys[e.key] = false;
+        });
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            // Player movement logic
+            if (playerMesh.position.y > CONFIG.fogBaseHeight) {
+                playerMesh.position.y -= 0.2;
+            } else {
+                // Show fog effect by changing background
+                document.body.style.backgroundColor = '#1a1a2e';
+            }
+            
+            updateEnemies();
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+        // UI updates (placeholder)
+        function updateUI() {
+            const healthFill = document.getElementById('health-fill');
+            const levelDisplay = document.getElementById('level-display');
+            const xpDisplay = document.getElementById('xp-display');
+            
+            // Placeholder - would connect to Python backend in full implementation
+            healthFill.style.width = '100%';
+            levelDisplay.textContent = '1';
+            xpDisplay.textContent = '0';
+        }
+
+        updateUI();
+    </script>
+</body>
+</html>

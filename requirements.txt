@@ -1,0 +1,5 @@
+# ren.py game dependencies
+# No external Python dependencies required for basic functionality
+
+# For web serving (optional):
+# Flask==3.0.0
